@@ -48,7 +48,7 @@ app.on('ready', function () {
     //set the context menu
     Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 
-    mainWindow = new BrowserWindow({width: 1280, height: 720, resizable: true, title: 'Title'});
+    mainWindow = new BrowserWindow({width: 1280, height: 720, resizable: false, frame: false, title: 'Title'});
     mainWindow.loadUrl('file://' + __dirname + '/index.html');
     mainWindow.on('closed', function () {
         mainWindow = null;
