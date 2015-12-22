@@ -1,11 +1,11 @@
-/*! Pixi Flash 0.1.0 */
+/*! Pixi Flash 0.2.9 */
 /**
  * @module SpringRoll Plugin
  * @namespace pixiflash
  * @requires Pixi Flash
  */
 (function(undefined)
-{	
+{
 	var Debug;
 
 	/**
@@ -16,8 +16,9 @@
 	 * @param {String} id The asset id
 	 * @param {NodeElement} dom The `<script>` element added to the document
 	 * @param {String} [libName='lib'] The window parameter name
+	 * @param {Boolean} suppressWarnings	Should we hide 'flash asset collision' warnings (default false)
 	 */
-	var FlashArt = function(id, dom, libName)
+	var FlashArt = function(id, dom, libName, suppressWarnings)
 	{
 		if (true && Debug === undefined)
 		{
@@ -49,8 +50,8 @@
 		 */
 		this.id = id;
 
-		// Pare the dome object
-		this.parseSymbols(dom.text);
+		// Parse the dom object
+		this.parseSymbols(dom.text, suppressWarnings);
 	};
 
 	// Reference to the prototype
@@ -68,8 +69,9 @@
 	 * Get the name of all the library elements of the dom text
 	 * @method parseSymbols
 	 * @param {String} text The DOM text contents
+	 * @param {Boolean} suppressWarnings	Should we hide 'flash asset collision' warnings (default false)
 	 */
-	p.parseSymbols = function(text)
+	p.parseSymbols = function(text, suppressWarnings)
 	{
 		// split into the initialization functions, that take 'lib' as a parameter
 		var textArray = text.split(/[\(!]function\s*\(/);
@@ -95,7 +97,7 @@
 				assetId = foundName[1];
 
 				// Warn about collisions with assets that already exist
-				if (true && Debug && globalSymbols[assetId])
+				if (true && Debug && globalSymbols[assetId] && !suppressWarnings)
 				{
 					Debug.warn(
 						"Flash Asset Collision: asset '" + this.id +
@@ -144,15 +146,14 @@
  * @requires Pixi Flash
  */
 (function()
-{	
+{
 	var Task = include('springroll.Task'),
 		FlashArt = include('pixiflash.FlashArt'),
 		TextureAtlas = include('springroll.pixi.TextureAtlas'),
 		Texture = include('PIXI.Texture');
 
 	/**
-	 * Replaces Bitmaps in the global lib dictionary with a faux Bitmap
-	 * that pulls the image from a spritesheet.
+	 * Loads a FlashArt, making it easier to load and unload PixiFlash art.
 	 * @class FlashArtTask
 	 * @extends springroll.Task
 	 * @constructor
@@ -195,6 +196,12 @@
 		 * @property {String} imagesName
 		 */
 		this.imagesName = "pixiflash_images";
+		
+		/**
+		 * Do we suppress 'flash asset collision' warnings?
+		 * @property {Boolean} suppressWarnings
+		 */
+		this.suppressWarnings = !!asset.suppress;
 	};
 
 	// Reference to prototype
@@ -246,15 +253,20 @@
 				}
 				images.push(atlas);
 			}
-			//Check for EaselJS SpriteSheets
-			else if(this.images[i].format == "createjs.SpriteSheet")
+			//Check for EaselJS style SpriteSheets
+			else if(this.images[i].format == "pixiflash.SpriteSheet")
 			{
 				asset = this.images[i].clone();
 				images.push(asset);
 				if(!asset.type)
 					asset.type = "pixi";
-				if(!asset.id)
-					asset.id = "asset_" + (assetCount++);
+				if (!asset.id)
+				{
+					var src = asset.src;
+					src = src.substr(0, src.lastIndexOf("."));
+					src = src.substr(src.lastIndexOf("/") + 1);
+					asset.id = src;
+				}
 			}
 			//standard images
 			else
@@ -301,7 +313,8 @@
 			var art = new FlashArt(
 				this.id,
 				results._flash,
-				this.libName
+				this.libName,
+				this.suppressWarnings
 			);
 			
 			var images = results._images;
@@ -368,8 +381,74 @@
  * @namespace pixiflash
  * @requires Pixi Flash
  */
+(function(undefined)
+{
+	var MovieClip = include('pixiflash.MovieClip');
+	var AnimatorInstance = include('springroll.AnimatorInstance');
+	var GenericMovieClipInstance = include('springroll.GenericMovieClipInstance');
+
+	/**
+	 * The plugin for working with movieclip and animator
+	 * @class MovieClipInstance
+	 * @extends springroll.GenericMovieClipInstance
+	 * @private
+	 */
+	var MovieClipInstance = function()
+	{
+		GenericMovieClipInstance.call(this);
+	};
+
+	/**
+	 * Required to test clip
+	 * @method test
+	 * @static
+	 * @param {*} clip The object to test
+	 * @return {Boolean} If the clip is compatible with this plugin
+	 */
+	MovieClipInstance.test = function(clip)
+	{
+		return clip instanceof MovieClip;
+	};
+	
+	MovieClipInstance.hasAnimation = GenericMovieClipInstance.hasAnimation;
+	MovieClipInstance.getDuration = GenericMovieClipInstance.getDuration;
+
+	// Inherit the AnimatorInstance
+	var s = GenericMovieClipInstance.prototype;
+	var p = AnimatorInstance.extend(MovieClipInstance, GenericMovieClipInstance);
+	
+	p._Generic_beginAnim = p.beginAnim;
+	
+	p.beginAnim = function(animObj, isRepeat)
+	{
+		this._Generic_beginAnim(animObj, isRepeat);
+		
+		//because pixiflash.MovieClip no longer updates the timeline in advance(), we need
+		//to make sure the timeline is updated immediately in this case
+		this.clip._updateTimeline();
+	};
+	
+	p._Generic_setPosition = p.setPosition;
+	p.setPosition = function(newPos)
+	{
+		this._Generic_setPosition(newPos);
+		
+		//update the timeline manually, because MovieClips that are children of other PixiFlash
+		//display objects won't get their ticks fired when tickEnabled is false.
+		this.clip._updateTimeline();
+	};
+
+	// Assign to namespace
+	namespace('pixiflash').MovieClipInstance = MovieClipInstance;
+
+}());
+/**
+ * @module SpringRoll Plugin
+ * @namespace pixiflash
+ * @requires Pixi Flash
+ */
 (function()
-{	
+{
 	// Include classes
 	var ApplicationPlugin = include('springroll.ApplicationPlugin');
 
@@ -377,9 +456,10 @@
 	var plugin = new ApplicationPlugin();
 
 	plugin.setup = function()
-	{	
+	{
 		this.assetManager.register('pixiflash.FlashArtTask', 60);
 		this.assetManager.register('pixiflash.SpriteSheetTask', 70);
+		this.animator.register('pixiflash.MovieClipInstance', 10);
 	};
 
 }());
@@ -392,6 +472,9 @@
 
 	/**
 	 * Load a spritesheet generated from Flash and adds it to the global ss namespace.
+	 * This namespace is shared with regular CreateJS art, as it can't be changed in Flash's
+	 * publishing settings. As such, don't name spritesheets for CreateJS and PixiFlash the same
+	 * thing if both spritesheets are being used by art published from Flash.
 	 * @class SpriteSheetTask
 	 * @extends springroll.LoadTask
 	 * @constructor
